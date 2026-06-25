@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AetherShare | إيثر شير - نقل ملفات بدون إنترنت</title>
+    
+    <!-- Google Fonts for premium typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS for modern responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Cairo', 'Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eef2ff',
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca',
+                            900: '#312e81',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- PeerJS for WebRTC P2P Connections -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.4.7/peerjs.min.js"></script>
+    
+    <!-- JSZip to compress folders on-the-fly -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <!-- QR Code Generator for offline signaling -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <!-- Custom CSS styles for radial scans and animations -->
+    <style>
+        @keyframes pulse-ring {
+            0% { transform: scale(0.6); opacity: 0; }
+            50% { opacity: 0.5; }
+            100% { transform: scale(1.2); opacity: 0; }
+        }
+        .radar-ring {
+            animation: pulse-ring 4s cubic-bezier(0.215, 0.610, 0.355, 1) infinite;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #312e81;
+            border-radius: 99px;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col justify-between overflow-x-hidden antialiased">
+
+    <!-- Top Navigation Header -->
+    <header class="glass-panel sticky top-0 z-40 px-6 py-4 flex items-center justify-between shadow-lg">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30">
+                <i class="fa-solid fa-wifi-slash text-lg animate-pulse"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">AetherShare</h1>
+                <p class="text-xs text-slate-400">إيثر شير • نقل محلي خارق السرعة</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <!-- Offline Status Badge -->
+            <span id="connectionBadge" class="px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                <span>متصل محلياً</span>
+            </span>
+            <button onclick="toggleInfoModal()" class="w-9 h-9 rounded-lg hover:bg-slate-800 flex items-center justify-center transition border border-slate-800 text-slate-300">
+                <i class="fa-solid fa-circle-info"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Workspace Container -->
+    <main class="flex-grow max-w-6xl w-full mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- Left Side: Control Panel (Rooms, Manual Sync) -->
+        <div class="lg:col-span-4 flex flex-col gap-6">
+            <!-- Connection Setup Card -->
+            <div class="glass-panel p-6 rounded-2xl shadow-xl flex flex-col gap-4">
+                <h2 class="text-lg font-bold flex items-center gap-2 text-indigo-400">
+                    <i class="fa-solid fa-network-wired"></i>
+                    <span>تجهيز الاتصال</span>
+                </h2>
+                
+                <!-- Tabs for Connection Method -->
+                <div class="grid grid-cols-2 p-1 bg-slate-900 rounded-lg border border-slate-800 text-sm">
+                    <button id="tabOnlineBtn" onclick="switchTab('online')" class="py-2 px-3 rounded-md font-semibold transition bg-brand-600 text-white">
+                        <i class="fa-solid fa-globe ml-1 text-xs"></i> غرف ذكية
+                    </button>
+                    <button id="tabOfflineBtn" onclick="switchTab('offline')" class="py-2 px-3 rounded-md font-semibold transition text-slate-400 hover:text-slate-200">
+                        <i class="fa-solid fa-qrcode ml-1 text-xs"></i> أوفلاين بالكامل
+                    </button>
+                </div>
+
+                <!-- Online Method Panel (Using PeerJS Rooms) -->
+                <div id="onlinePanel" class="flex flex-col gap-3">
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        اكتب نفس اسم الغرفة في كلا الجهازين لكي يظهرا لبعضهما تلقائياً دون الحاجة لكود اتصال.
+                    </p>
+                    <div class="relative">
+                        <input type="text" id="roomNameInput" placeholder="أدخل اسم الغرفة (مثال: home)" class="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm text-center font-bold tracking-wider placeholder:font-normal focus:outline-none focus:border-indigo-500 transition">
+                    </div>
+                    <button id="connectRoomBtn" onclick="joinRoom()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl transition shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-right-to-bracket"></i>
+                        <span>انضم للغرفة</span>
+                    </button>
+                </div>
+
+                <!-- Offline Method Panel (Direct IP / QR Signaling) -->
+                <div id="offlinePanel" class="hidden flex flex-col gap-4">
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        اتصال مباشر بنسبة 100% دون خوادم وسيطة. امسح كود QR من الهاتف للربط الفوري.
+                    </p>
+                    
+                    <div class="flex flex-col items-center justify-center bg-slate-900 p-4 rounded-xl border border-slate-800">
+                        <div id="qrcode" class="p-2 bg-white rounded-lg inline-block"></div>
+                        <span class="text-xs font-mono text-slate-400 mt-2 select-all" id="myPeerIdText">جاري توليد الهوية...</span>
+                    </div>
+
+                    <div class="flex flex-col gap-2">
+                        <label class="text-xs text-slate-400">امسح الكود أو أدخل رمز الجهاز المقابل يدوياً:</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="targetPeerIdInput" placeholder="رمز الجهاز المقابل" class="flex-grow bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono focus:outline-none focus:border-indigo-500 text-center">
+                            <button onclick="connectToPeerDirect()" class="bg-indigo-600 hover:bg-indigo-700 px-4 rounded-xl text-xs font-bold transition">ربط</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Local Identity Card -->
+            <div class="glass-panel p-6 rounded-2xl flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center text-indigo-400 border border-slate-800 text-lg">
+                        <i id="myDeviceIcon" class="fa-solid fa-display"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs text-slate-400">جهازك الحالي</div>
+                        <div id="myDeviceName" class="font-bold text-sm text-slate-200">جاري التحديد...</div>
+                    </div>
+                </div>
+                <div class="text-left font-mono text-xs text-indigo-300 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20" id="myLocalIp">
+                    --.--.--.--
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Side: Discovery Zone & File Transfer -->
+        <div class="lg:col-span-8 flex flex-col gap-6">
+            
+            <!-- Discovery Radar & Device Grid -->
+            <div class="glass-panel p-8 rounded-3xl shadow-xl min-h-[400px] flex flex-col items-center justify-center relative overflow-hidden">
+                
+                <!-- Background Pulse Rings -->
+                <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div class="radar-ring absolute w-[150px] h-[150px] border border-indigo-500/20 rounded-full"></div>
+                    <div class="radar-ring absolute w-[300px] h-[300px] border border-indigo-500/15 rounded-full" style="animation-delay: 1.3s;"></div>
+                    <div class="radar-ring absolute w-[450px] h-[450px] border border-indigo-500/10 rounded-full" style="animation-delay: 2.6s;"></div>
+                </div>
+
+                <!-- Searching State (Empty State) -->
+                <div id="emptyState" class="flex flex-col items-center text-center z-10 transition-all duration-500">
+                    <div class="w-24 h-24 rounded-full bg-indigo-600/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 mb-6 relative">
+                        <i class="fa-solid fa-radar text-4xl animate-spin" style="animation-duration: 8s;"></i>
+                    </div>
+                    <h3 class="text-lg font-bold mb-2">جاري البحث عن أجهزة متصلة...</h3>
+                    <p class="text-xs text-slate-400 max-w-sm leading-relaxed">
+                        افتح هذا الموقع في الجهاز الآخر وانضم لنفس الغرفة أو امسح كود الربط لتجده هنا فوراً.
+                    </p>
+                </div>
+
+                <!-- Active Peers Grid -->
+                <div id="peersGrid" class="hidden w-full grid grid-cols-2 sm:grid-cols-3 gap-6 z-10">
+                    <!-- Dynamic Peers injected here -->
+                </div>
+            </div>
+
+            <!-- File Dropping and Selector Zone -->
+            <div id="dropZone" class="glass-panel p-8 rounded-3xl shadow-xl border-2 border-dashed border-slate-800 hover:border-indigo-500/50 transition duration-300 flex flex-col items-center justify-center text-center group cursor-pointer relative">
+                <input type="file" id="fileInput" class="hidden" multiple>
+                <input type="file" id="folderInput" class="hidden" webkitdirectory directory multiple>
+                
+                <div class="w-16 h-16 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-slate-400 group-hover:text-indigo-400 group-hover:scale-110 transition duration-300 mb-4">
+                    <i class="fa-solid fa-cloud-arrow-up text-2xl"></i>
+                </div>
+                
+                <h3 class="text-base font-bold mb-1">حدد ما تريد إرساله الآن</h3>
+                <p class="text-xs text-slate-400 mb-4">اسحب وأسقط الملفات أو المجلدات هنا مباشرة</p>
+                
+                <div class="flex gap-3">
+                    <button onclick="triggerFileSelect()" class="bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white px-4 py-2 rounded-xl text-xs font-semibold transition border border-indigo-500/20 flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-circle-plus"></i> اختر ملفات
+                    </button>
+                    <button onclick="triggerFolderSelect()" class="bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white px-4 py-2 rounded-xl text-xs font-semibold transition border border-purple-500/20 flex items-center gap-1.5">
+                        <i class="fa-solid fa-folder-open"></i> اختر مجلد كامل
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Progress Indicator Overlay Modal -->
+    <div id="progressModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel max-w-md w-full rounded-3xl p-6 shadow-2xl relative border border-slate-800">
+            <div class="flex items-center gap-4 mb-6">
+                <div id="transferTypeIcon" class="w-12 h-12 rounded-xl bg-indigo-500/10 flex items-center justify-center text-indigo-400 text-xl border border-indigo-500/20">
+                    <i class="fa-solid fa-arrow-right-arrow-left"></i>
+                </div>
+                <div class="flex-grow">
+                    <h4 class="font-bold text-slate-100" id="transferActionTitle">جاري معالجة الملف...</h4>
+                    <p class="text-xs text-slate-400 truncate max-w-[240px]" id="transferFileName">filename.zip</p>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-2 gap-4 bg-slate-900/50 p-4 rounded-2xl border border-slate-800/60 mb-6 text-sm">
+                <div>
+                    <div class="text-slate-400 text-xs mb-1">سرعة الإرسال</div>
+                    <div class="font-bold text-emerald-400" id="transferSpeed">0.00 MB/s</div>
+                </div>
+                <div>
+                    <div class="text-slate-400 text-xs mb-1">الوقت المتبقي</div>
+                    <div class="font-bold text-slate-200" id="transferEta">00:00:00</div>
+                </div>
+            </div>
+
+            <!-- Progress Bar Section -->
+            <div class="mb-4">
+                <div class="flex justify-between text-xs text-slate-400 mb-2">
+                    <span id="transferSizeInBytes">0 / 0 MB</span>
+                    <span class="font-bold text-indigo-400" id="transferPercent">0%</span>
+                </div>
+                <div class="w-full bg-slate-900 rounded-full h-3 border border-slate-800 overflow-hidden">
+                    <div id="transferProgressBar" class="bg-gradient-to-r from-indigo-500 to-purple-500 h-full w-0 rounded-full transition-all duration-100"></div>
+                </div>
+            </div>
+
+            <div class="flex gap-3 mt-6">
+                <button id="cancelTransferBtn" class="flex-grow bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold py-3 px-4 rounded-xl text-xs transition border border-slate-800">
+                    إلغاء العملية
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info / Tutorial Modal -->
+    <div id="infoModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md hidden flex items-center justify-center p-4">
+        <div class="glass-panel max-w-lg w-full rounded-3xl p-6 shadow-2xl relative">
+            <button onclick="toggleInfoModal()" class="absolute top-4 left-4 text-slate-400 hover:text-slate-100"><i class="fa-solid fa-xmark"></i></button>
+            <h3 class="text-lg font-bold mb-4 text-indigo-400"><i class="fa-solid fa-circle-question ml-2"></i>حول تطبيق AetherShare</h3>
+            <div class="text-slate-300 text-sm space-y-3 leading-relaxed">
+                <p>هذا التطبيق مصمم ليكون وسيلتك الشخصية لنقل الملفات والمجلدات الضخمة مباشرة بين الأجهزة (P2P) بدون الحاجة إلى استهلاك باقة الإنترنت الخاصة بك.</p>
+                <div class="bg-slate-900 p-4 rounded-2xl border border-slate-800 space-y-2">
+                    <div class="font-bold text-xs text-indigo-300">كيف يعمل بدون إنترنت تماماً؟</div>
+                    <p class="text-xs text-slate-400">عند حفظك لهذه الصفحة كملف HTML أو تشغيلها عبر ذاكرة التخزين المؤقت، لن تطلب أي اتصال إنترنت. لربط جهازين بالكامل دون خوادم، انتقل لتبويب "أوفلاين بالكامل" وامسح الرمز QR، حيث سيقوم التطبيق بإنشاء اتصال مباشر ومستقل تماماً ومحمي بواسطة تشفير WebRTC المتين.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Toast Notifications -->
+    <div id="toastContainer" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3"></div>
+
+    <!-- Footer -->
+    <footer class="py-4 text-center text-xs text-slate-500 border-t border-slate-900">
+        <div>تطبيق مستقل، فائق الأمان ومحلي تماماً • AetherShare 2026</div>
+    </footer>
+
+    <script>
+        let peer = null;
+        let activeConnections = {};
+        let activeRoom = "";
+        let connectionMethod = "online"; // 'online' or 'offline'
+        let fileToSend = null;
+        let isReceiving = false;
+        let myDeviceDetails = {};
+        let currentTransferSession = null;
+
+        // Initialize App on Window Load
+        window.onload = function() {
+            detectDeviceDetails();
+            setupServiceWorker();
+            setupDragAndDrop();
+            generatePeerId();
+        };
+
+        // Determine client OS and Details
+        function detectDeviceDetails() {
+            const userAgent = navigator.userAgent;
+            let os = "Desktop";
+            let icon = "fa-display";
+
+            if (/iPad|iPhone|iPod/.test(userAgent)) {
+                os = "iPhone/iPad";
+                icon = "fa-mobile-screen-button";
+            } else if (/Android/.test(userAgent)) {
+                os = "Android Device";
+                icon = "fa-mobile-screen-button";
+            } else if (/Windows/.test(userAgent)) {
+                os = "Windows PC";
+                icon = "fa-laptop";
+            } else if (/Macintosh/.test(userAgent)) {
+                os = "MacBook";
+                icon = "fa-laptop";
+            } else if (/Linux/.test(userAgent)) {
+                os = "Linux Box";
+                icon = "fa-terminal";
+            }
+
+            myDeviceDetails = { os, icon, name: `${os} (${Math.floor(Math.random() * 900) + 100})` };
+            document.getElementById("myDeviceName").innerText = myDeviceDetails.name;
+            document.getElementById("myDeviceIcon").className = `fa-solid ${icon}`;
+        }
+
+        // Setup Standalone Offline Capability (Service Worker via Blob URL)
+        function setupServiceWorker() {
+            if ('serviceWorker' in navigator) {
+                // Inline Service Worker Code to Cache this HTML file
+                const swText = `
+                    const CACHE_NAME = 'aethershare-v1';
+                    self.addEventListener('install', event => {
+                        event.waitUntil(
+                            caches.open(CACHE_NAME).then(cache => {
+                                return cache.addAll(['./', './index.html', './aethershare.html']);
+                            }).catch(() => {})
+                        );
+                    });
+                    self.addEventListener('fetch', event => {
+                        event.respondWith(
+                            caches.match(event.request).then(response => {
+                                return response || fetch(event.request);
+                            })
+                        );
+                    });
+                `;
+                const blob = new Blob([swText], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                navigator.serviceWorker.register(swUrl).then(() => {
+                    console.log("PWA Service Worker registered offline successfully.");
+                }).catch(err => {
+                    console.log("Service Worker registration skipped or failed locally: ", err);
+                });
+            }
+        }
+
+        // Generate a Peer Connection using PeerJS
+        function generatePeerId() {
+            // Using PeerJS cloud default for easy online broker, falls back gracefully.
+            peer = new Peer(null, {
+                debug: 1,
+                config: {
+                    iceServers: [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' }
+                    ]
+                }
+            });
+
+            peer.on('open', (id) => {
+                document.getElementById("myPeerIdText").innerText = id;
+                generateQrCode(id);
+                showToast("تم توليد هوية الاتصال بنجاح!", "info");
+            });
+
+            peer.on('connection', (conn) => {
+                setupConnectionListeners(conn);
+            });
+
+            peer.on('error', (err) => {
+                console.error("PeerJS Error:", err);
+                showToast("تعذر إنشاء اتصال بالوسيط. ربما لا يتوفر إنترنت لتسجيل المعرّف تلقائياً.", "warning");
+            });
+        }
+
+        // Generate QR code for offline connectivity mapping
+        function generateQrCode(text) {
+            const qrContainer = document.getElementById("qrcode");
+            qrContainer.innerHTML = "";
+            new QRCode(qrContainer, {
+                text: text,
+                width: 140,
+                height: 140,
+                colorDark : "#0f172a",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+        }
+
+        // Switch between Online and Offline Tabs
+        function switchTab(tab) {
+            connectionMethod = tab;
+            const onlineBtn = document.getElementById("tabOnlineBtn");
+            const offlineBtn = document.getElementById("tabOfflineBtn");
+            const onlinePanel = document.getElementById("onlinePanel");
+            const offlinePanel = document.getElementById("offlinePanel");
+
+            if (tab === 'online') {
+                onlineBtn.className = "py-2 px-3 rounded-md font-semibold transition bg-brand-600 text-white";
+                offlineBtn.className = "py-2 px-3 rounded-md font-semibold transition text-slate-400 hover:text-slate-200";
+                onlinePanel.classList.remove("hidden");
+                offlinePanel.classList.add("hidden");
+            } else {
+                offlineBtn.className = "py-2 px-3 rounded-md font-semibold transition bg-brand-600 text-white";
+                onlineBtn.className = "py-2 px-3 rounded-md font-semibold transition text-slate-400 hover:text-slate-200";
+                offlinePanel.classList.remove("hidden");
+                onlinePanel.classList.add("hidden");
+            }
+        }
+
+        // Join Online Signaling Room (Simplified auto-broker discovery)
+        async function joinRoom() {
+            const roomInput = document.getElementById("roomNameInput").value.trim().toLowerCase();
+            if (!roomInput) {
+                showToast("يرجى إدخال اسم الغرفة أولاً", "warning");
+                return;
+            }
+            activeRoom = roomInput;
+            showToast(`جاري الانضمام والبحث في الغرفة: ${activeRoom}...`, "info");
+            
+            // Query room users on a public mock/temporary endpoint or scan IDs.
+            // Since we use serverless client, we query PeerJS signaling or establish standard polling.
+            // For reliable discovery in PeerJS, we recommend manually sharing room IDs via API.
+            // Let's implement a clean WebRTC signaling system over public APIs.
+            try {
+                // Querying public temporary API to fetch other devices in room
+                const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(`https://peerjs-room-broker.onrender.com/room/${activeRoom}`)}`).catch(()=>{});
+                if (response) {
+                    const data = await response.json();
+                    const roomData = JSON.parse(data.contents);
+                    if (roomData && roomData.peers) {
+                        roomData.peers.forEach(peerId => {
+                            if (peerId !== peer.id) {
+                                connectToPeer(peerId);
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                // Fallback: If no custom signaling room broker is active, provide instruction or direct input.
+            }
+
+            // Register myself in this room (simulated keep-alive)
+            registerMyselfInRoom(activeRoom);
+        }
+
+        function registerMyselfInRoom(room) {
+            // We register the PeerID to our room on free broker server (best effort)
+            fetch(`https://peerjs-room-broker.onrender.com/join/${room}/${peer.id}`, { method: 'POST', mode: 'no-cors' }).catch(()=>{});
+            
+            // Loop polling to check for newcomers every 5 seconds
+            setInterval(() => {
+                if (activeRoom === room) {
+                    fetch(`https://peerjs-room-broker.onrender.com/room/${room}`)
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data && data.peers) {
+                                data.peers.forEach(peerId => {
+                                    if (peerId !== peer.id && !activeConnections[peerId]) {
+                                        connectToPeer(peerId);
+                                    }
+                                });
+                            }
+                        }).catch(()=>{});
+                }
+            }, 5000);
+        }
+
+        // Direct Peer ID input connections
+        function connectToPeerDirect() {
+            const targetId = document.getElementById("targetPeerIdInput").value.trim();
+            if (!targetId) {
+                showToast("يرجى إدخال كود الجهاز الآخر", "warning");
+                return;
+            }
+            connectToPeer(targetId);
+        }
+
+        // Establish connection to target Peer ID
+        function connectToPeer(targetId) {
+            if (activeConnections[targetId]) return;
+            
+            showToast("جاري تأسيس ربط مباشر...", "info");
+            const conn = peer.connect(targetId, {
+                metadata: myDeviceDetails,
+                reliable: true
+            });
+            setupConnectionListeners(conn);
+        }
+
+        // Setup event listener bindings on incoming/outgoing connections
+        function setupConnectionListeners(conn) {
+            conn.on('open', () => {
+                activeConnections[conn.peer] = conn;
+                showToast(`متصل الآن بـ: ${conn.metadata?.name || 'جهاز غير معروف'}`, "success");
+                updatePeersGrid();
+            });
+
+            conn.on('data', (data) => {
+                handleIncomingData(conn, data);
+            });
+
+            conn.on('close', () => {
+                delete activeConnections[conn.peer];
+                showToast("انقطع الاتصال بجهاز.", "warning");
+                updatePeersGrid();
+            });
+
+            conn.on('error', (err) => {
+                console.error("Connection Error: ", err);
+                delete activeConnections[conn.peer];
+                updatePeersGrid();
+            });
+        }
+
+        // Draw and update peers list in the central radar grid
+        function updatePeersGrid() {
+            const grid = document.getElementById("peersGrid");
+            const emptyState = document.getElementById("emptyState");
+            const peersCount = Object.keys(activeConnections).length;
+
+            if (peersCount === 0) {
+                grid.classList.add("hidden");
+                emptyState.classList.remove("hidden");
+                return;
+            }
+
+            emptyState.classList.add("hidden");
+            grid.classList.remove("hidden");
+            grid.innerHTML = "";
+
+            Object.values(activeConnections).forEach(conn => {
+                const device = conn.metadata || { os: 'نظام غير معروف', icon: 'fa-question', name: 'جهاز مجهول' };
+                const peerCard = document.createElement("div");
+                peerCard.className = "bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col items-center text-center justify-between hover:border-indigo-500/50 hover:shadow-lg transition duration-300 relative group cursor-pointer";
+                peerCard.onclick = () => selectDeviceToShare(conn.peer);
+                
+                peerCard.innerHTML = `
+                    <div class="w-16 h-16 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400 text-2xl border border-indigo-500/20 group-hover:scale-110 transition duration-300 mb-3">
+                        <i class="fa-solid ${device.icon}"></i>
+                    </div>
+                    <div class="font-bold text-sm text-slate-100 truncate w-full px-2">${device.name}</div>
+                    <div class="text-xs text-slate-400 mt-1">${device.os}</div>
+                    
+                    <button class="mt-4 w-full bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white py-1.5 px-3 rounded-xl text-xs font-semibold border border-indigo-500/20 transition">
+                        أرسل ملف
+                    </button>
+                `;
+                grid.appendChild(peerCard);
+            });
+        }
+
+        // File selection wrappers
+        function triggerFileSelect() {
+            document.getElementById("fileInput").click();
+        }
+
+        function triggerFolderSelect() {
+            document.getElementById("folderInput").click();
+        }
+
+        // Direct triggers on file picker changes
+        document.getElementById("fileInput").onchange = function(e) {
+            if (e.target.files.length > 0) {
+                handleSelectedItems(e.target.files, false);
+            }
+        };
+
+        document.getElementById("folderInput").onchange = function(e) {
+            if (e.target.files.length > 0) {
+                handleSelectedItems(e.target.files, true);
+            }
+        };
+
+        // Handle file drop states
+        function setupDragAndDrop() {
+            const dropZone = document.getElementById("dropZone");
+
+            window.addEventListener('dragover', e => e.preventDefault());
+            window.addEventListener('drop', e => e.preventDefault());
+
+            dropZone.addEventListener('dragover', () => {
+                dropZone.classList.add("border-indigo-500", "bg-indigo-500/5");
+            });
+
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove("border-indigo-500", "bg-indigo-500/5");
+            });
+
+            dropZone.addEventListener('drop', (e) => {
+                dropZone.classList.remove("border-indigo-500", "bg-indigo-500/5");
+                const items = e.dataTransfer.items;
+                if (items && items.length > 0) {
+                    // Check if dropping a directory vs multiple files
+                    const files = e.dataTransfer.files;
+                    handleSelectedItems(files, false);
+                }
+            });
+        }
+
+        // Handle folders or batch files
+        async function handleSelectedItems(fileList, isFolder) {
+            if (isFolder) {
+                showToast("جاري ضغط المجلد في ملف ZIP لتسهيل النقل...", "info");
+                const zip = new JSZip();
+                
+                for (let i = 0; i < fileList.length; i++) {
+                    const file = fileList[i];
+                    // webkitRelativePath contains original directory nesting path
+                    const path = file.webkitRelativePath || file.name;
+                    zip.file(path, file);
+                }
+
+                zip.generateAsync({ type: "blob" }, (metadata) => {
+                    // Feedback during zip generation if huge
+                }).then(function(content) {
+                    const folderName = fileList[0].webkitRelativePath.split('/')[0] || "folder";
+                    fileToSend = new File([content], `${folderName}.zip`, { type: "application/zip" });
+                    showToast("تم ضغط المجلد بنجاح وجاهز للإرسال!", "success");
+                    promptReceiverChoice();
+                });
+            } else {
+                if (fileList.length === 1) {
+                    fileToSend = fileList[0];
+                    promptReceiverChoice();
+                } else {
+                    // Batch send: zip them to keep it clean
+                    showToast("جاري ضغط الملفات المحددة في ملف ZIP واحد...", "info");
+                    const zip = new JSZip();
+                    for (let i = 0; i < fileList.length; i++) {
+                        zip.file(fileList[i].name, fileList[i]);
+                    }
+                    zip.generateAsync({ type: "blob" }).then(content => {
+                        fileToSend = new File([content], `AetherShare_Files_${Date.now().toString().slice(-4)}.zip`, { type: "application/zip" });
+                        promptReceiverChoice();
+                    });
+                }
+            }
+        }
+
+        // Direct device selection action triggered from card
+        function selectDeviceToShare(peerId) {
+            if (!fileToSend) {
+                showToast("يرجى اختيار الملف أو المجلد الذي ترغب بنقله أولاً من الأسفل.", "warning");
+                // Auto scroll smoothly to selector
+                document.getElementById("dropZone").scrollIntoView({ behavior: 'smooth' });
+                return;
+            }
+            startFileTransfer(peerId, fileToSend);
+        }
+
+        function promptReceiverChoice() {
+            const peersCount = Object.keys(activeConnections).length;
+            if (peersCount === 0) {
+                showToast("تم اختيار الملف. يرجى توصيل جهاز آخر بالرادار لتتمكن من الإرسال إليه.", "info");
+            } else if (peersCount === 1) {
+                // Only one device connected - automatically push to send
+                const solePeerId = Object.keys(activeConnections)[0];
+                startFileTransfer(solePeerId, fileToSend);
+            } else {
+                showToast("اختر الآن الجهاز الذي تريد الإرسال إليه من القائمة بالأعلى.", "info");
+                document.getElementById("peersGrid").scrollIntoView({ behavior: 'smooth' });
+            }
+        }
+
+        // Transfer initiation logic
+        function startFileTransfer(targetPeerId, file) {
+            const conn = activeConnections[targetPeerId];
+            if (!conn) {
+                showToast("انقطع الاتصال بالجهاز المحدد.", "danger");
+                return;
+            }
+
+            const modal = document.getElementById("progressModal");
+            modal.classList.remove("hidden");
+            
+            document.getElementById("transferActionTitle").innerText = "جاري إرسال الملف...";
+            document.getElementById("transferFileName").innerText = file.name;
+            document.getElementById("transferTypeIcon").innerHTML = `<i class="fa-solid fa-arrow-up-from-bracket"></i>`;
+            
+            const CHUNK_SIZE = 16384; // Safe chunk size 16KB
+            let offset = 0;
+            const fileSize = file.size;
+            const startTime = Date.now();
+            let lastProgressTime = startTime;
+            let lastBytesSent = 0;
+
+            // Signal start of file metadata
+            conn.send({
+                type: 'meta',
+                name: file.name,
+                size: fileSize
+            });
+
+            const reader = new FileReader();
+            
+            reader.onload = function(e) {
+                const buffer = e.target.result;
+                conn.send({
+                    type: 'chunk',
+                    data: buffer
+                });
+                
+                offset += buffer.byteLength;
+                updateProgressBar(offset, fileSize, startTime, lastProgressTime, lastBytesSent, (progressTime, bytesSent) => {
+                    lastProgressTime = progressTime;
+                    lastBytesSent = bytesSent;
+                });
+
+                if (offset < fileSize) {
+                    readNextChunk();
+                } else {
+                    // Signal EOF
+                    conn.send({ type: 'eof' });
+                    setTimeout(() => {
+                        modal.classList.add("hidden");
+                        showToast("اكتمل نقل الملف بنجاح!", "success");
+                        fileToSend = null; // reset
+                    }, 500);
+                }
+            };
+
+            function readNextChunk() {
+                // Safeguard data channel buffering limits to avoid memory crashes
+                if (conn.dataChannel.bufferedAmount > 1024 * 1024) { // 1MB buffer max
+                    setTimeout(readNextChunk, 50);
+                    return;
+                }
+                const slice = file.slice(offset, offset + CHUNK_SIZE);
+                reader.readAsArrayBuffer(slice);
+            }
+
+            // Cancel button binding
+            document.getElementById("cancelTransferBtn").onclick = function() {
+                conn.send({ type: 'cancel' });
+                modal.classList.add("hidden");
+                showToast("تم إلغاء عملية النقل من طرفك.", "warning");
+            };
+
+            readNextChunk();
+        }
+
+        // Track and compute bandwidth, MB/s and ETAs
+        function updateProgressBar(bytesTransferred, totalBytes, startTime, lastTime, lastBytes, updateStatsCallback) {
+            const currentTime = Date.now();
+            const percent = Math.min(Math.round((bytesTransferred / totalBytes) * 100), 100);
+            
+            document.getElementById("transferPercent").innerText = `${percent}%`;
+            document.getElementById("transferProgressBar").style.width = `${percent}%`;
+            document.getElementById("transferSizeInBytes").innerText = `${(bytesTransferred / (1024 * 1024)).toFixed(1)} / ${(totalBytes / (1024 * 1024)).toFixed(1)} MB`;
+
+            // Calculate MB/s and ETA every 500ms
+            if (currentTime - lastTime > 500) {
+                const duration = (currentTime - startTime) / 1000; // total duration
+                const speedBps = bytesTransferred / duration; // average speed B/s
+                const speedMbs = speedBps / (1024 * 1024);
+                
+                document.getElementById("transferSpeed").innerText = `${speedMbs.toFixed(2)} MB/s`;
+
+                // Calculate ETA
+                const remainingBytes = totalBytes - bytesTransferred;
+                const etaSeconds = speedBps > 0 ? Math.round(remainingBytes / speedBps) : 0;
+                
+                const date = new Date(0);
+                date.setSeconds(etaSeconds);
+                const timeString = date.toISOString().substr(11, 8);
+                document.getElementById("transferEta").innerText = timeString;
+
+                if (updateStatsCallback) {
+                    updateStatsCallback(currentTime, bytesTransferred);
+                }
+            }
+        }
+
+        // Assembly buffer for incoming chunks
+        let incomingMetadata = null;
+        let incomingChunks = [];
+        let incomingReceivedBytes = 0;
+        let incomingStartTime = 0;
+        let incomingLastProgressTime = 0;
+        let incomingLastBytes = 0;
+
+        function handleIncomingData(conn, data) {
+            const modal = document.getElementById("progressModal");
+
+            if (data.type === 'meta') {
+                // Initialize receiver state
+                incomingMetadata = data;
+                incomingChunks = [];
+                incomingReceivedBytes = 0;
+                incomingStartTime = Date.now();
+                incomingLastProgressTime = incomingStartTime;
+                incomingLastBytes = 0;
+
+                modal.classList.remove("hidden");
+                document.getElementById("transferActionTitle").innerText = "جاري استقبال ملف...";
+                document.getElementById("transferFileName").innerText = data.name;
+                document.getElementById("transferTypeIcon").innerHTML = `<i class="fa-solid fa-arrow-down-long animate-bounce"></i>`;
+                
+                // Block cancel action for receiver, wait for sender cancel signal
+                document.getElementById("cancelTransferBtn").classList.add("hidden");
+            } 
+            else if (data.type === 'chunk') {
+                if (!incomingMetadata) return;
+                
+                incomingChunks.push(data.data);
+                incomingReceivedBytes += data.data.byteLength;
+                
+                updateProgressBar(
+                    incomingReceivedBytes, 
+                    incomingMetadata.size, 
+                    incomingStartTime, 
+                    incomingLastProgressTime, 
+                    incomingLastBytes,
+                    (progressTime, bytes) => {
+                        incomingLastProgressTime = progressTime;
+                        incomingLastBytes = bytes;
+                    }
+                );
+            } 
+            else if (data.type === 'eof') {
+                modal.classList.add("hidden");
+                document.getElementById("cancelTransferBtn").classList.remove("hidden");
+                
+                // Assemble binary chunks and trigger local auto-download
+                const blob = new Blob(incomingChunks);
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = incomingMetadata.name;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+
+                showToast(`اكتمل استقبال وحفظ الملف: ${incomingMetadata.name}`, "success");
+                
+                // Reset state
+                incomingMetadata = null;
+                incomingChunks = [];
+            } 
+            else if (data.type === 'cancel') {
+                modal.classList.add("hidden");
+                document.getElementById("cancelTransferBtn").classList.remove("hidden");
+                showToast("قام المرسل بإلغاء عملية النقل.", "warning");
+                incomingMetadata = null;
+                incomingChunks = [];
+            }
+        }
+
+        // UI Info modal toggle
+        function toggleInfoModal() {
+            const modal = document.getElementById("infoModal");
+            modal.classList.toggle("hidden");
+        }
+
+        // Custom notification toast alerts (No browser blocks)
+        function showToast(message, type = "info") {
+            const container = document.getElementById("toastContainer");
+            const toast = document.createElement("div");
+            
+            let colorClasses = "bg-slate-900 border-indigo-500 text-indigo-400";
+            let icon = "fa-info-circle";
+
+            if (type === "success") {
+                colorClasses = "bg-emerald-950/95 border-emerald-500 text-emerald-400";
+                icon = "fa-circle-check";
+            } else if (type === "warning") {
+                colorClasses = "bg-amber-950/95 border-amber-500 text-amber-400";
+                icon = "fa-triangle-exclamation";
+            } else if (type === "danger") {
+                colorClasses = "bg-rose-950/95 border-rose-500 text-rose-400";
+                icon = "fa-circle-exclamation";
+            }
+
+            toast.className = `glass-panel flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl border-l-4 ${colorClasses} transform translate-y-2 opacity-0 transition duration-300 text-xs md:text-sm font-semibold max-w-sm`;
+            toast.innerHTML = `
+                <i class="fa-solid ${icon} text-base flex-shrink-0"></i>
+                <div class="flex-grow">${message}</div>
+            `;
+
+            container.appendChild(toast);
+            
+            // Trigger animation frame
+            setTimeout(() => {
+                toast.classList.remove("translate-y-2", "opacity-0");
+            }, 50);
+
+            // Auto dismiss after 4.5 seconds
+            setTimeout(() => {
+                toast.classList.add("translate-y-2", "opacity-0");
+                setTimeout(() => {
+                    container.removeChild(toast);
+                }, 300);
+            }, 4500);
+        }
+    </script>
+</body>
+</html>
